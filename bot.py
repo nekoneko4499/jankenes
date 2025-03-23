@@ -10,12 +10,14 @@ import threading
 # 環境変数の読み込み
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
+LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 
 # Discord Botの準備
 intents = discord.Intents.default()
 intents.message_content = True
 intents.guilds = True
 intents.members = True
+intents.voice_states = True  # ボイスチャットの状態変更を取得
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 # Flaskアプリケーション（ヘルスチェック用）
@@ -78,6 +80,16 @@ async def on_member_update(before, after):
                 except discord.NotFound:
                     print(f"Message not found for {after.name}")
             break
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    # VCに参加したとき
+    if before.channel is None and after.channel is not None:
+        await log_channel.send(f"{member.name} が {after.channel.name} に参加しました。")
+    # VCから退出したとき
+    elif after.channel is None and before.channel is not None:
+        await log_channel.send(f"{member.name} が {before.channel.name} から退出しました。")
 
 # じゃんけんゲームコマンド
 @bot.command()
