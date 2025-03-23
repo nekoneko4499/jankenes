@@ -33,9 +33,10 @@ async def janken(ctx, role: discord.Role = None):
         def check(reaction, user):
             return str(reaction.emoji) == reaction_emoji and not user.bot
 
-        # 10秒間、リアクションを待つ
-        await bot.wait_for("reaction_add", timeout=10.0, check=check)
+        # 15秒間、リアクションを待つ
+        await bot.wait_for("reaction_add", timeout=15.0, check=check)
         
+        # リアクションしたユーザーを参加者として追加
         participants = [user for user in ctx.guild.members if str(reaction_emoji) in [str(reaction.emoji) for reaction in await ctx.message.reactions]]
         if not participants:
             await ctx.send("参加者がいません。終了します。")
@@ -52,11 +53,15 @@ async def janken(ctx, role: discord.Role = None):
     hand_map = {"👊": "グー", "✌️": "チョキ", "✋": "パー"}
     reactions = ["👊", "✌️", "✋"]
 
+    # ボットを参加させる
+    participants.append(bot.user)
+
     # 参加者に手を選ばせるDMを送る
     player_choices = {}
 
     for player in participants:
         try:
+            # DMメッセージを送る
             dm_message = await player.send(
                 "じゃんけんの手をリアクションで選んでください！\n"
                 "👊: グー\n"
@@ -66,6 +71,7 @@ async def janken(ctx, role: discord.Role = None):
             for reaction in reactions:
                 await dm_message.add_reaction(reaction)
 
+            # リアクションが追加されるのを待つ
             def check(reaction, user):
                 return user == player and str(reaction.emoji) in reactions
 
@@ -89,21 +95,32 @@ async def janken(ctx, role: discord.Role = None):
         player = await bot.fetch_user(player_id)
         results_message += f"- {player.display_name}: {hand_map[player_choice]}\n"
 
-    results_message += "\n"
-    winners = []
-    for player_id, player_choice in player_choices.items():
-        for opponent_id, opponent_choice in player_choices.items():
-            if player_id != opponent_id:
-                if win_table[player_choice] == opponent_choice:
-                    winners.append(player_id)
-
-    if winners:
-        results_message += "\n**勝者:**\n"
-        for winner_id in winners:
-            winner = await bot.fetch_user(winner_id)
-            results_message += f"- {winner.display_name}\n"
+    # あいこの判定
+    if len(set(player_choices.values())) == 1:
+        results_message += "\n**あいこ（引き分け）です！**"
+    elif len(set(player_choices.values())) == 3:
+        results_message += "\n**あいこ（引き分け）です！**"
     else:
-        results_message += "\n引き分けです！\n"
+        results_message += "\n"
+        winners = []
+        for player_id, player_choice in player_choices.items():
+            for opponent_id, opponent_choice in player_choices.items():
+                if player_id != opponent_id:
+                    if win_table[player_choice] == opponent_choice:
+                        winners.append(player_id)
+
+        if winners:
+            results_message += "**勝者:**\n"
+            for winner_id in winners:
+                winner = await bot.fetch_user(winner_id)
+                results_message += f"- {winner.display_name}\n"
+
+            losers = [player_id for player_id in player_choices.keys() if player_id not in winners and player_id != bot.user.id]
+            if losers:
+                results_message += "\n**敗者:**\n"
+                for loser_id in losers:
+                    loser = await bot.fetch_user(loser_id)
+                    results_message += f"- {loser.display_name}\n"
 
     await ctx.send(results_message)
 
