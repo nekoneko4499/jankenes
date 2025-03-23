@@ -35,49 +35,69 @@ def run_http_server():
 def keep_alive():
     threading.Thread(target=run_http_server).start()
 
+# グローバル辞書でDMメッセージを管理
+user_messages = {}
+
+@bot.event
+async def on_ready():
+    print(f"{bot.user.name} is ready!")
+
+@bot.event
+async def on_member_update(before, after):
+    # 新しいロールが追加された場合をチェック
+    new_roles = set(after.roles) - set(before.roles)
+    for role in new_roles:
+        if role.name == "見学":  # 対象のロール名を指定
+            try:
+                # メンバーにDMを送信
+                message = await after.send(
+                    f"こんにちは！あなたに '{role.name}' が付与されました！\n"
+                    "このロールが付いた人はメッセージを送れなくなり、見ることしかできません。\n"
+                    "それがいやな場合、以下にアクセスしてください:\n"
+                    "https://discord.com/channels/1165775639798878288/1351191234961604640"
+                )
+                # メッセージを記録
+                user_messages[after.id] = message.id
+                print(f"Message sent to {after.name}")
+            except discord.Forbidden:
+                print(f"Could not send message to {after.name} (DM disabled or permission denied)")
+            break
+
+    # 削除されたロールがある場合のチェック
+    removed_roles = set(before.roles) - set(after.roles)
+    for role in removed_roles:
+        if role.name == "YourRoleName":  # 対象のロール名を指定
+            # 該当ユーザーの送信済みメッセージを削除
+            if after.id in user_messages:
+                try:
+                    message_id = user_messages.pop(after.id)
+                    channel = await after.create_dm()  # DMチャンネルを取得
+                    message = await channel.fetch_message(message_id)
+                    await message.delete()
+                    print(f"Message deleted for {after.name}")
+                except discord.Forbidden:
+                    print(f"Could not delete message for {after.name} (DM disabled or permission denied)")
+                except discord.NotFound:
+                    print(f"Message not found for {after.name}")
+            break
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    log_channel = bot.get_channel(LOG_CHANNEL_ID)
+    # VCに参加したとき
+    if before.channel is None and after.channel is not None:
+        await log_channel.send(f"{member.name} が {after.channel.name} に参加しました。")
+    # VCから退出したとき
+    elif after.channel is None and before.channel is not None:
+        await log_channel.send(f"{member.name} が {before.channel.name} から退出しました。")
+
 # じゃんけんゲームコマンド
 @bot.command()
-async def janken(ctx, target_role: discord.Role = None):
-    participants = []
+async def janken(ctx):
+    await ctx.send("じゃんけんを始めます！ボットがDMを送信しますので、リアクションで手を選んでください！")
 
-    if target_role:
-        # 指定したロールを持っているメンバー全員にDMを送る
-        for member in ctx.guild.members:
-            if target_role in member.roles and not member.bot:
-                participants.append(member)
-                try:
-                    dm_message = await member.send(
-                        "じゃんけんの手をリアクションで選んでください！\n"
-                        "👊: グー\n"
-                        "✌️: チョキ\n"
-                        "✋: パー"
-                    )
-                    for reaction in ["👊", "✌️", "✋"]:
-                        await dm_message.add_reaction(reaction)
-                except discord.Forbidden:
-                    print(f"{member.name}にDMを送れませんでした。")
-    else:
-        # 参加者募集メッセージを送る
-        msg = await ctx.send("じゃんけんに参加するにはこのメッセージにリアクションしてください！")
-
-        # 参加ボタンとしてのリアクションを追加
-        await msg.add_reaction("✅")  # 参加するには✅を押す
-
-        def check(reaction, user):
-            return user != bot.user and str(reaction.emoji) == "✅"  # リアクションが✅の場合のみ
-
-        try:
-            # リアクションを待つ (最大15秒)
-            reaction, user = await bot.wait_for("reaction_add", timeout=15.0, check=check)
-            participants.append(user)
-            await ctx.send(f"{user.display_name} が参加しました！")
-        except asyncio.TimeoutError:
-            await ctx.send("参加者がいませんでした。")
-
-    # ボットを参加させる
-    participants.append(bot.user)
-
-    # 参加者にDMで手を選ばせる
+    # プレイヤー全員にDMを送信し、リアクションで選択を受け取る
+    player_choices = {}
     reactions = ["👊", "✌️", "✋"]
     hand_map = {"👊": "グー", "✌️": "チョキ", "✋": "パー"}
 
@@ -101,23 +121,30 @@ async def janken(ctx, target_role: discord.Role = None):
         except asyncio.TimeoutError:
             await player.send("時間切れです。手の選択ができませんでした。")
 
-    player_choices = {}
     tasks = []
-    for player in participants:
-        tasks.append(send_dm_and_wait(player))
+    for member in ctx.guild.members:
+        if not member.bot:
+            tasks.append(send_dm_and_wait(member))
 
     await asyncio.gather(*tasks)
 
-    # ボットの手を選ぶ
     bot_choice = random.choice(reactions)
     player_choices[bot.user.id] = bot_choice
     await ctx.send(f"ボットの手は {hand_map[bot_choice]} です！")
 
-    # 勝敗の決定
     win_table = {"👊": "✌️", "✌️": "✋", "✋": "👊"}
-    results_message = "各プレイヤーの選択:\n"
-    results = {player_id: {"wins": 0, "losses": 0} for player_id in player_choices.keys()}
+    all_choices = set(player_choices.values())
 
+    if len(all_choices) == 3:
+        results_message = "各プレイヤーの選択:\n"
+        for player_id, player_choice in player_choices.items():
+            player = await bot.fetch_user(player_id)
+            results_message += f"- {player.display_name}: {hand_map[player_choice]}\n"
+        results_message += "\nぐー、ちょき、ぱーが揃っているため、全員引き分け（あいこ）です！"
+        await ctx.send("結果:\n" + results_message)
+        return
+
+    results = {player_id: {"wins": 0, "losses": 0} for player_id in player_choices.keys()}
     for player_id, player_choice in player_choices.items():
         for opponent_id, opponent_choice in player_choices.items():
             if player_id != opponent_id:
@@ -129,6 +156,7 @@ async def janken(ctx, target_role: discord.Role = None):
     winners = [player_id for player_id, result in results.items() if result["wins"] > 0 and result["losses"] == 0]
     losers = [player_id for player_id, result in results.items() if result["losses"] > 0 and result["wins"] == 0]
 
+    results_message = "各プレイヤーの選択:\n"
     for player_id, player_choice in player_choices.items():
         player = await bot.fetch_user(player_id)
         results_message += f"- {player.display_name}: {hand_map[player_choice]}\n"
