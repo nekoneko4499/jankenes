@@ -20,6 +20,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 # じゃんけんゲームコマンド
 @bot.command()
 async def janken(ctx, role: discord.Role = None):
+    participants = []
+
     if role is None:
         # 参加するかどうか選ぶメッセージを送る
         await ctx.send("じゃんけんを始めます！参加するかどうか選んでください！\n参加する場合はこのメッセージにリアクションをつけてください。")
@@ -77,6 +79,7 @@ async def janken(ctx, role: discord.Role = None):
 
     # ボットの手をランダムで決定
     bot_choice = random.choice(reactions)
+    player_choices[bot.user.id] = bot_choice
     await ctx.send(f"ボットの手は {hand_map[bot_choice]} です！")
 
     # 勝敗を判定
