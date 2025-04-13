@@ -13,7 +13,8 @@ import threading
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
-KENNGAKU_ROLE_ID = int(os.getenv("KENNGAKU_ROLE_ID"))  # 👈 見学ロールIDを追加
+KENNGAKU_ROLE_ID = int(os.getenv("KENNGAKU_ROLE_ID"))
+TARGET_BOT_ID = int(os.getenv("TARGET_BOT_ID"))  # 👈 音楽BotのID
 
 # ========================
 # Discord Botの準備
@@ -55,10 +56,9 @@ async def on_ready():
 # ========================
 @bot.event
 async def on_member_update(before, after):
-    # 新しく追加されたロールをチェック
     new_roles = set(after.roles) - set(before.roles)
     for role in new_roles:
-        if role.id == KENNGAKU_ROLE_ID:  # 👈 IDで判定
+        if role.id == KENNGAKU_ROLE_ID:
             try:
                 message = await after.send(
                     f"こんにちは！あなたに '見学' ロールが付与されました！\n"
@@ -69,13 +69,12 @@ async def on_member_update(before, after):
                 user_messages[after.id] = message.id
                 print(f"{after.name} に見学ロールDMを送信しました")
             except discord.Forbidden:
-                print(f"{after.name} へのDM送信ができません（許可されていないかDMがオフ）")
+                print(f"{after.name} へのDM送信ができません")
             break
 
-    # ロール削除時の処理（必要があれば追加）
     removed_roles = set(before.roles) - set(after.roles)
     for role in removed_roles:
-        if role.id == KENNGAKU_ROLE_ID:  # 👈 IDで判定
+        if role.id == KENNGAKU_ROLE_ID:
             if after.id in user_messages:
                 try:
                     message_id = user_messages.pop(after.id)
@@ -84,7 +83,7 @@ async def on_member_update(before, after):
                     await message.delete()
                     print(f"{after.name} のDMメッセージを削除しました")
                 except discord.Forbidden:
-                    print(f"{after.name} のDM削除ができません（許可されていないかDMがオフ）")
+                    print(f"{after.name} のDM削除ができません")
                 except discord.NotFound:
                     print(f"{after.name} のメッセージが見つかりませんでした")
             break
@@ -102,6 +101,29 @@ async def on_voice_state_update(member, before, after):
         await log_channel.send(f"🔊 {member.display_name} が **{after.channel.name}** に参加しました！")
     elif after.channel is None and before.channel is not None:
         await log_channel.send(f"🔇 {member.display_name} が **{before.channel.name}** から退出しました。")
+
+# ========================
+# ✅ 音楽終了コマンド（BotをVCから切断）
+# ========================
+@bot.command()
+async def 音楽終了(ctx):
+    if ctx.author.voice is None or ctx.author.voice.channel is None:
+        await ctx.send("まずあなたがボイスチャンネルに参加してください。")
+        return
+
+    voice_channel = ctx.author.voice.channel
+
+    for member in voice_channel.members:
+        if member.bot and member.id == TARGET_BOT_ID:
+            try:
+                await member.move_to(None)
+                await ctx.send(f"{member.display_name} をボイスチャンネルから切断しました。")
+                return
+            except discord.Forbidden:
+                await ctx.send("そのBotを切断する権限がありません。")
+                return
+
+    await ctx.send("指定されたBotはこのボイスチャンネルにいません。")
 
 # ========================
 # ✅ じゃんけんコマンド（省略なし）
