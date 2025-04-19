@@ -14,7 +14,27 @@ load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 KENNGAKU_ROLE_ID = int(os.getenv("KENNGAKU_ROLE_ID"))
-TARGET_BOT_ID = int(os.getenv("TARGET_BOT_ID"))  # 👈 音楽BotのID
+TARGET_BOT_ID = int(os.getenv("TARGET_BOT_ID"))
+
+# ========================
+# ブラックリスト読み込み関数
+# ========================
+def load_blacklisted_user_ids(file_path="blacklist.txt"):
+    user_ids = []
+    try:
+        with open(file_path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#"):
+                    try:
+                        user_ids.append(int(line))
+                    except ValueError:
+                        print(f"⚠️ 無効なIDが含まれています: {line}")
+    except FileNotFoundError:
+        print(f"⚠️ blacklist.txt が見つかりません")
+    return user_ids
+
+BLACKLISTED_USER_IDS = load_blacklisted_user_ids()
 
 # ========================
 # Discord Botの準備
@@ -51,9 +71,19 @@ user_messages = {}
 async def on_ready():
     print(f"{bot.user.name} is ready!")
 
-# ========================
+# ✅ ブラックリストに該当するユーザーをキック
+@bot.event
+async def on_member_join(member):
+    if member.id in BLACKLISTED_USER_IDS:
+        try:
+            await member.kick(reason="ブラックリストに登録されているユーザー")
+            print(f"🚫 {member.name}（{member.id}）をキックしました")
+        except discord.Forbidden:
+            print(f"⚠️ {member.name} をキックできません（権限不足）")
+        except Exception as e:
+            print(f"⚠️ キック中にエラー: {e}")
+
 # ✅ 見学ロール付与時にDM送信
-# ========================
 @bot.event
 async def on_member_update(before, after):
     new_roles = set(after.roles) - set(before.roles)
@@ -88,9 +118,7 @@ async def on_member_update(before, after):
                     print(f"{after.name} のメッセージが見つかりませんでした")
             break
 
-# ========================
 # ✅ VC参加・退出ログを送信
-# ========================
 @bot.event
 async def on_voice_state_update(member, before, after):
     log_channel = bot.get_channel(LOG_CHANNEL_ID)
@@ -102,9 +130,7 @@ async def on_voice_state_update(member, before, after):
     elif after.channel is None and before.channel is not None:
         await log_channel.send(f"🔇 {member.display_name} が **{before.channel.name}** から退出しました。")
 
-# ========================
 # ✅ 音楽終了コマンド（BotをVCから切断）
-# ========================
 @bot.command()
 async def 音楽終了(ctx):
     if ctx.author.voice is None or ctx.author.voice.channel is None:
@@ -125,9 +151,7 @@ async def 音楽終了(ctx):
 
     await ctx.send("指定されたBotはこのボイスチャンネルにいません。")
 
-# ========================
 # ✅ じゃんけんコマンド（省略なし）
-# ========================
 @bot.command()
 async def janken(ctx, *args):
     participants = []
