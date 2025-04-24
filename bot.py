@@ -13,21 +13,9 @@ import threading
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
+BLACKLIST_LOG_CHANNEL_ID = int(os.getenv("BLACKLIST_LOG_CHANNEL_ID"))
 KENNGAKU_ROLE_ID = int(os.getenv("KENNGAKU_ROLE_ID"))
 TARGET_BOT_ID = int(os.getenv("TARGET_BOT_ID"))
-BLACKLIST_KICK_LOG_CHANNEL_ID = int(os.getenv("BLACKLIST_KICK_LOG_CHANNEL_ID"))
-
-# ========================
-# ブラックリスト読み込み関数
-# ========================
-def load_blacklisted_user_ids():
-    try:
-        with open("blacklist.txt", "r", encoding="utf-8") as f:
-            return set(line.strip() for line in f if line.strip().isdigit())
-    except FileNotFoundError:
-        return set()
-
-BLACKLISTED_USER_IDS = load_blacklisted_user_ids()
 
 # ========================
 # Discord Botの準備
@@ -60,28 +48,55 @@ def keep_alive():
 # ========================
 user_messages = {}
 
+# ========================
+# ブラックリスト読み込み関数
+# ========================
+def load_blacklist():
+    ids = set()
+    for file in ["blacklist.txt", "blacklist_extra.txt"]:
+        if os.path.exists(file):
+            with open(file, "r") as f:
+                for line in f:
+                    line = line.strip()
+                    if line.isdigit():
+                        ids.add(int(line))
+    return ids
+
+blacklist_ids = load_blacklist()
+
+# ========================
+# ✅ 起動時に既存メンバーをチェック
+# ========================
 @bot.event
 async def on_ready():
     print(f"{bot.user.name} is ready!")
+    for guild in bot.guilds:
+        for member in guild.members:
+            if member.id in blacklist_ids:
+                try:
+                    await member.kick(reason="Blacklisted user")
+                    log_channel = bot.get_channel(BLACKLIST_LOG_CHANNEL_ID)
+                    if log_channel:
+                        await log_channel.send(f"⛔ 起動時にブラックリストID: `{member.id}` をキックしました。")
+                except discord.Forbidden:
+                    print(f"{member.name} をキックできませんでした。")
 
 # ========================
-# ✅ ブラックリストチェック
+# ✅ 新メンバー参加時のチェック
 # ========================
 @bot.event
 async def on_member_join(member):
-    if str(member.id) in BLACKLISTED_USER_IDS:
+    if member.id in blacklist_ids:
         try:
-            await member.kick(reason="ブラックリスト対象")
-            log_channel = bot.get_channel(BLACKLIST_KICK_LOG_CHANNEL_ID)
+            await member.kick(reason="Blacklisted user")
+            log_channel = bot.get_channel(BLACKLIST_LOG_CHANNEL_ID)
             if log_channel:
-                await log_channel.send(f"🚫 ブラックリストのため {member.name}（ID: {member.id}）をキックしました。")
+                await log_channel.send(f"⛔ ブラックリストID: `{member.id}` のユーザーをキックしました。")
         except discord.Forbidden:
-            print(f"⚠️ {member.name} をキックできませんでした（権限不足）")
-        except Exception as e:
-            print(f"⚠️ キックエラー: {e}")
+            print(f"{member.name} をキックできませんでした。")
 
 # ========================
-# ✅ 見学ロール付与時のDM処理
+# ✅ 見学ロール付与時にDM送信
 # ========================
 @bot.event
 async def on_member_update(before, after):
@@ -103,19 +118,22 @@ async def on_member_update(before, after):
 
     removed_roles = set(before.roles) - set(after.roles)
     for role in removed_roles:
-        if role.id == KENNGAKU_ROLE_ID and after.id in user_messages:
-            try:
-                message_id = user_messages.pop(after.id)
-                channel = await after.create_dm()
-                message = await channel.fetch_message(message_id)
-                await message.delete()
-                print(f"{after.name} のDMメッセージを削除しました")
-            except (discord.Forbidden, discord.NotFound):
-                print(f"{after.name} のDM削除に失敗しました")
+        if role.id == KENNGAKU_ROLE_ID:
+            if after.id in user_messages:
+                try:
+                    message_id = user_messages.pop(after.id)
+                    channel = await after.create_dm()
+                    message = await channel.fetch_message(message_id)
+                    await message.delete()
+                    print(f"{after.name} のDMメッセージを削除しました")
+                except discord.Forbidden:
+                    print(f"{after.name} のDM削除ができません")
+                except discord.NotFound:
+                    print(f"{after.name} のメッセージが見つかりませんでした")
             break
 
 # ========================
-# ✅ VC参加・退出ログ
+# ✅ VC参加・退出ログを送信
 # ========================
 @bot.event
 async def on_voice_state_update(member, before, after):
@@ -129,7 +147,7 @@ async def on_voice_state_update(member, before, after):
         await log_channel.send(f"🔇 {member.display_name} が **{before.channel.name}** から退出しました。")
 
 # ========================
-# ✅ 音楽BotをVCから切断
+# ✅ 音楽終了コマンド
 # ========================
 @bot.command()
 async def 音楽終了(ctx):
@@ -152,14 +170,128 @@ async def 音楽終了(ctx):
     await ctx.send("指定されたBotはこのボイスチャンネルにいません。")
 
 # ========================
-# ✅ ブラックリスト再読み込みコマンド
+# ✅ じゃんけんコマンド
 # ========================
 @bot.command()
-@commands.has_permissions(administrator=True)
-async def reload_blacklist(ctx):
-    global BLACKLISTED_USER_IDS
-    BLACKLISTED_USER_IDS = load_blacklisted_user_ids()
-    await ctx.send("🔄 ブラックリストを再読み込みしました。")
+async def janken(ctx, *args):
+    participants = []
+
+    if args:
+        role_mentions = ctx.message.role_mentions
+        if not role_mentions:
+            await ctx.send("ロールが指定されていません！")
+            return
+
+        role = role_mentions[0]
+        participants = [member for member in role.members if not member.bot]
+        if not participants:
+            await ctx.send(f"ロール {role.name} に該当するメンバーがいません！")
+            return
+
+        await ctx.send(f"{role.name} のメンバーにDMを送ります！")
+    else:
+        recruit_message = await ctx.send(
+            "じゃんけん大会を開催します！参加する方は✋のリアクションを押してください！（15秒間）"
+        )
+        await recruit_message.add_reaction("✋")
+
+        def reaction_check(reaction, user):
+            return (
+                user != bot.user
+                and reaction.message.id == recruit_message.id
+                and str(reaction.emoji) == "✋"
+            )
+
+        try:
+            while True:
+                reaction, user = await bot.wait_for("reaction_add", timeout=15.0, check=reaction_check)
+                if user not in participants:
+                    participants.append(user)
+        except asyncio.TimeoutError:
+            if not participants:
+                await ctx.send("参加者がいませんでした！")
+                return
+            await ctx.send(f"{len(participants)}人の参加者が集まりました！")
+
+    participants.append(bot.user)
+
+    player_choices = {}
+    reactions = ["👊", "✌️", "✋"]
+    hand_map = {"👊": "グー", "✌️": "チョキ", "✋": "パー"}
+
+    async def send_dm_and_wait(player):
+        if player.bot:
+            choice = random.choice(reactions)
+            player_choices[player.id] = choice
+            return
+
+        try:
+            dm_message = await player.send(
+                "じゃんけんの手をリアクションで選んでください！\n"
+                "👊: グー\n"
+                "✌️: チョキ\n"
+                "✋: パー"
+            )
+            for reaction in reactions:
+                await dm_message.add_reaction(reaction)
+
+            def check(reaction, user):
+                return user == player and str(reaction.emoji) in reactions
+
+            reaction, user = await bot.wait_for("reaction_add", timeout=30.0, check=check)
+            player_choices[player.id] = str(reaction.emoji)
+            await player.send(f"あなたの選択「{hand_map[reaction.emoji]}」を受け付けました！")
+
+        except asyncio.TimeoutError:
+            await player.send("時間切れになりました。今回は不参加とさせていただきます。")
+
+    tasks = [send_dm_and_wait(member) for member in participants]
+    await asyncio.gather(*tasks)
+
+    active_players = {pid: choice for pid, choice in player_choices.items()}
+
+    if len(active_players) < 2:
+        await ctx.send("参加者が不足しています。じゃんけんを中止します。")
+        return
+
+    choices_set = set(active_players.values())
+
+    results_message = "結果:\n各プレイヤーの選択:\n"
+    for player_id, choice in active_players.items():
+        player = bot.get_user(player_id)
+        results_message += f"- {player.display_name if player else '不明'}: {hand_map[choice]}\n"
+
+    if len(choices_set) == 1 or len(choices_set) == 3:
+        results_message += "\n**あいこ（引き分け）です！**"
+    else:
+        win_table = {"👊": "✌️", "✌️": "✋", "✋": "👊"}
+        hands_list = list(choices_set)
+        if win_table[hands_list[0]] == hands_list[1]:
+            winning_hand = hands_list[0]
+        else:
+            winning_hand = hands_list[1]
+
+        winners = []
+        losers = []
+
+        for pid, choice in active_players.items():
+            if choice == winning_hand:
+                winners.append(pid)
+            else:
+                losers.append(pid)
+
+        if winners:
+            results_message += "\n\n**勝者:**\n"
+            for winner_id in winners:
+                player = bot.get_user(winner_id)
+                results_message += f"- {player.display_name if player else '不明'}\n"
+        if losers:
+            results_message += "\n\n**敗者:**\n"
+            for loser_id in losers:
+                player = bot.get_user(loser_id)
+                results_message += f"- {player.display_name if player else '不明'}\n"
+
+    await ctx.send(results_message)
 
 # ========================
 # 起動！
