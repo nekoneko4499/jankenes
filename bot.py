@@ -65,6 +65,36 @@ def load_blacklist():
 blacklist_ids = load_blacklist()
 
 # ========================
+# ✅ ブラックリスト単語のチェックとVCから強制退出
+# ========================
+@bot.event
+async def on_message(message):
+    # ターゲットBotのメッセージかどうかを確認
+    if message.author.bot and message.author.id == TARGET_BOT_ID:
+        try:
+            # ブラックリストの単語を読み込む
+            with open("blacktxt.txt", "r", encoding="utf-8") as f:
+                blacklist_words = f.read().splitlines()
+
+            # メッセージ内容にブラックリスト単語が含まれているかチェック
+            if any(word in message.content for word in blacklist_words):
+                # メッセージ送信者がボイスチャンネルに参加しているか確認
+                if message.author.voice:
+                    # VCから強制退出
+                    await message.author.disconnect()
+                    await message.channel.send(f"{message.author.display_name} をボイスチャンネルから切断しました。")
+
+                # ログチャンネルに記録
+                log_channel = bot.get_channel(LOG_CHANNEL_ID)
+                if log_channel:
+                    await log_channel.send(f"⛔ {message.author.name} がブラックリストの単語を含むメッセージを送信し、VCから退出させました。")
+        except Exception as e:
+            print(f"エラー: {e}")
+    
+    # コマンド処理を続ける
+    await bot.process_commands(message)
+
+# ========================
 # ✅ 起動時に既存メンバーをチェック
 # ========================
 @bot.event
@@ -145,33 +175,6 @@ async def on_voice_state_update(member, before, after):
         await log_channel.send(f"🔊 {member.display_name} が **{after.channel.name}** に参加しました！")
     elif after.channel is None and before.channel is not None:
         await log_channel.send(f"🔇 {member.display_name} が **{before.channel.name}** から退出しました。")
-
-# ========================
-# ✅ メッセージ監視とキック処理
-# ========================
-@bot.event
-async def on_message(message):
-    # 対象のBotのメッセージかを確認
-    if message.author.id != TARGET_BOT_ID:
-        return
-
-    # メッセージ内容にblacktxt.txtに含まれるキーワードがあるかチェック
-    with open("blacktxt.txt", "r") as file:
-        blacklisted_keywords = file.read().splitlines()
-
-    # メッセージがキーワードを含んでいる場合
-    if any(keyword in message.content for keyword in blacklisted_keywords):
-        # VC参加しているかチェック
-        if message.author.voice:
-            try:
-                # ボイスチャンネルから切断
-                await message.author.voice.disconnect()
-                log_channel = bot.get_channel(LOG_CHANNEL_ID)
-                if log_channel:
-                    await log_channel.send(f"🔴 {message.author.display_name} がVCからキックされました。理由: キーワードが含まれていたため。")
-                await message.channel.send(f"{message.author.display_name} はキーワードが含まれていたためVCからキックされました。")
-            except discord.Forbidden:
-                await message.channel.send("Botにその権限がありません。")
 
 # ========================
 # ✅ 音楽終了コマンド
