@@ -147,6 +147,33 @@ async def on_voice_state_update(member, before, after):
         await log_channel.send(f"🔇 {member.display_name} が **{before.channel.name}** から退出しました。")
 
 # ========================
+# ✅ メッセージ監視とキック処理
+# ========================
+@bot.event
+async def on_message(message):
+    # 対象のBotのメッセージかを確認
+    if message.author.id != TARGET_BOT_ID:
+        return
+
+    # メッセージ内容にblacktxt.txtに含まれるキーワードがあるかチェック
+    with open("blacktxt.txt", "r") as file:
+        blacklisted_keywords = file.read().splitlines()
+
+    # メッセージがキーワードを含んでいる場合
+    if any(keyword in message.content for keyword in blacklisted_keywords):
+        # VC参加しているかチェック
+        if message.author.voice:
+            try:
+                # ボイスチャンネルから切断
+                await message.author.voice.disconnect()
+                log_channel = bot.get_channel(LOG_CHANNEL_ID)
+                if log_channel:
+                    await log_channel.send(f"🔴 {message.author.display_name} がVCからキックされました。理由: キーワードが含まれていたため。")
+                await message.channel.send(f"{message.author.display_name} はキーワードが含まれていたためVCからキックされました。")
+            except discord.Forbidden:
+                await message.channel.send("Botにその権限がありません。")
+
+# ========================
 # ✅ 音楽終了コマンド
 # ========================
 @bot.command()
@@ -168,33 +195,6 @@ async def 音楽終了(ctx):
                 return
 
     await ctx.send("指定されたBotはこのボイスチャンネルにいません。")
-
-# ========================
-# ✅ メッセージ監視とキック処理
-# ========================
-@bot.event
-async def on_message(message):
-    # 対象のBotのメッセージかを確認
-    if message.author.id != TARGET_BOT_ID:
-        return
-
-    # メッセージ内容にblacktxt.txtに含まれるキーワードがあるかチェック
-    with open("blacktxt.txt", "r") as file:
-        blacklisted_keywords = file.read().splitlines()
-
-    # メッセージがキーワードを含んでいる場合
-    if any(keyword in message.content for keyword in blacklisted_keywords):
-        # VC参加しているかチェック
-        if message.author.voice:
-            try:
-                # キックする処理
-                await message.author.move_to(None)
-                log_channel = bot.get_channel(LOG_CHANNEL_ID)
-                if log_channel:
-                    await log_channel.send(f"🔴 {message.author.display_name} がVCからキックされました。理由: キーワードが含まれていたため。")
-                await message.channel.send(f"{message.author.display_name} はキーワードが含まれていたためVCからキックされました。")
-            except discord.Forbidden:
-                await message.channel.send("Botにその権限がありません。")
 
 # ========================
 # ✅ じゃんけんコマンド
