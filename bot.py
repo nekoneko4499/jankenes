@@ -76,18 +76,24 @@ async def on_message(message):
             with open("blacktxt.txt", "r", encoding="utf-8") as f:
                 blacklist_words = f.read().splitlines()
 
-            # メッセージ内容にブラックリスト単語が含まれているかチェック
-            if any(word in message.content for word in blacklist_words):
-                # メッセージ送信者がボイスチャンネルに参加しているか確認
-                if message.author.voice:
-                    # VCから強制退出
-                    await message.author.disconnect()
-                    await message.channel.send(f"{message.author.display_name} をボイスチャンネルから切断しました。")
+            # 埋め込みメッセージをチェック
+            if message.embeds:
+                # 埋め込みメッセージの内容を確認
+                for embed in message.embeds:
+                    # 埋め込みメッセージの説明部分（description）やタイトル（title）をチェック
+                    if embed.description and any(word in embed.description for word in blacklist_words):
+                        # メッセージ送信者がボイスチャンネルに参加しているか確認
+                        if message.author.voice:
+                            # VCから強制退出
+                            await message.author.disconnect()
+                            await message.channel.send(f"{message.author.display_name} をボイスチャンネルから切断しました。")
 
-                # ログチャンネルに記録
-                log_channel = bot.get_channel(LOG_CHANNEL_ID)
-                if log_channel:
-                    await log_channel.send(f"⛔ {message.author.name} がブラックリストの単語を含むメッセージを送信し、VCから退出させました。")
+                        # ログチャンネルに記録
+                        log_channel = bot.get_channel(LOG_CHANNEL_ID)
+                        if log_channel:
+                            await log_channel.send(f"⛔ {message.author.name} がブラックリストの単語を含む埋め込みメッセージを送信し、VCから退出させました。")
+                        break  # 1つでもヒットしたらチェックを終わる
+
         except Exception as e:
             print(f"エラー: {e}")
     
