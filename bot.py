@@ -65,43 +65,43 @@ def load_blacklist():
 blacklist_ids = load_blacklist()
 
 # ========================
-# ✅ ブラックリスト単語のチェックとVCから強制退出
+# 埋め込みメッセージ監視とボイスチャンネルからの退出処理
 # ========================
 @bot.event
 async def on_message(message):
-    # ターゲットBotのメッセージかどうかを確認
-    if message.author.bot and message.author.id == TARGET_BOT_ID:
-        try:
-            # ブラックリストの単語を読み込む
-            with open("blacktxt.txt", "r", encoding="utf-8") as f:
-                blacklist_words = f.read().splitlines()
+    # 埋め込みメッセージを送信したユーザーがTARGET_BOT_IDか確認
+    if message.author.id == TARGET_BOT_ID and message.embeds:
+        embed_content = ""
+        # 埋め込みメッセージの内容を取得
+        for embed in message.embeds:
+            if hasattr(embed, 'description') and embed.description:
+                embed_content += embed.description
 
-            # 埋め込みメッセージをチェック
-            if message.embeds:
-                # 埋め込みメッセージの内容を確認
-                for embed in message.embeds:
-                    # 埋め込みメッセージの説明部分（description）やタイトル（title）をチェック
-                    if embed.description and any(word in embed.description for word in blacklist_words):
-                        # メッセージ送信者がボイスチャンネルに参加しているか確認
-                        if message.author.voice:
-                            # VCから強制退出
-                            await message.author.disconnect()
-                            await message.channel.send(f"{message.author.display_name} をボイスチャンネルから切断しました。")
+        # ブラックリストファイルを読み込む
+        with open("blacktxt.txt", "r") as f:
+            blacklist_words = [line.strip() for line in f.readlines()]
 
-                        # ログチャンネルに記録
-                        log_channel = bot.get_channel(LOG_CHANNEL_ID)
-                        if log_channel:
-                            await log_channel.send(f"⛔ {message.author.name} がブラックリストの単語を含む埋め込みメッセージを送信し、VCから退出させました。")
-                        break  # 1つでもヒットしたらチェックを終わる
+        # メッセージ内容にブラックリストワードが含まれているかを確認
+        if any(word in embed_content for word in blacklist_words):
+            # メッセージがブラックリストに載っている場合、VCから退出させる
+            for guild in bot.guilds:
+                for member in guild.members:
+                    if member.bot and member.id == TARGET_BOT_ID:
+                        if member.voice:
+                            try:
+                                await member.move_to(None)  # VCから切断
+                                log_channel = bot.get_channel(LOG_CHANNEL_ID)
+                                if log_channel:
+                                    await log_channel.send(f"⛔ {member.display_name} がブラックリストの言葉を含むメッセージを送信したため、VCから退出させました。")
+                            except discord.Forbidden:
+                                print(f"{member.display_name} をVCから退出させる権限がありません。")
+                        break
+        await message.delete()  # メッセージを削除する（必要なら）
 
-        except Exception as e:
-            print(f"エラー: {e}")
-    
-    # コマンド処理を続ける
-    await bot.process_commands(message)
+    await bot.process_commands(message)  # 他のコマンド処理をするために必要
 
 # ========================
-# ✅ 起動時に既存メンバーをチェック
+# 起動時に既存メンバーをチェック
 # ========================
 @bot.event
 async def on_ready():
