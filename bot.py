@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import os
 from flask import Flask
 import threading
+import unicodedata
 
 # ========================
 # 環境変数の読み込み
@@ -15,7 +16,8 @@ TOKEN = os.getenv("DISCORD_TOKEN")
 LOG_CHANNEL_ID = int(os.getenv("LOG_CHANNEL_ID"))
 BLACKLIST_LOG_CHANNEL_ID = int(os.getenv("BLACKLIST_LOG_CHANNEL_ID"))
 KENNGAKU_ROLE_ID = int(os.getenv("KENNGAKU_ROLE_ID"))
-TARGET_BOT_ID = int(os.getenv("TARGET_BOT_ID"))
+TARGET_BOT_ID = int(os.getenv("TARGET_BOT_ID"))  # TARGET_USER_IDはそのままTARGET_BOT_IDに
+TARGET_USER_ID = TARGET_BOT_ID  # これを使う
 
 # ========================
 # Discord Botの準備
@@ -63,6 +65,37 @@ def load_blacklist():
     return ids
 
 blacklist_ids = load_blacklist()
+
+# ========================
+# ブラックリストのチェックとVCキック機能
+# ========================
+with open('blacktxt.txt', 'r', encoding='utf-8') as f:
+    keywords = [line.strip() for line in f.readlines()]
+
+@bot.event
+async def on_message(message):
+    if message.author.bot:
+        return  # bot自身のメッセージは無視
+
+    if message.author.id != TARGET_USER_ID:
+        return  # ターゲット以外は無視
+
+    # メッセージ内容を小文字にして、スペースを削除
+    cleaned_message = message.content.lower().replace(" ", "")
+    
+    # 正規化（全角文字を半角にしたり、特殊文字を統一）
+    cleaned_message = unicodedata.normalize('NFKC', cleaned_message)
+
+    # ブラックリストキーワードを正規化
+    normalized_keywords = [unicodedata.normalize('NFKC', keyword.lower().replace(" ", "")) for keyword in keywords]
+
+    if any(keyword in cleaned_message for keyword in normalized_keywords):
+        # ユーザーがボイスチャンネルにいるか確認
+        if message.author.voice and message.author.voice.channel:
+            await message.author.move_to(None)  # VCから切断
+            await message.channel.send(f"```違反行為が見つかったため、対象のユーザー（{message.author.mention}）をキックしました。```")
+
+    await bot.process_commands(message)
 
 # ========================
 # ✅ 起動時に既存メンバーをチェック
