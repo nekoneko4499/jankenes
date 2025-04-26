@@ -318,7 +318,7 @@ async def on_message(message):
                     if member.bot and member.id == TARGET_BOT_ID:
                         if member.voice:
                             try:
-                                await asyncio.sleep(3)  # 3秒待機してから
+                                await asyncio.sleep(1)  # 3秒待機してから
                                 await member.move_to(None)  # VCから切断
                                 log_channel = bot.get_channel(LOG_CHANNEL_ID)
                                 if log_channel:
