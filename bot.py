@@ -6,7 +6,6 @@ from dotenv import load_dotenv
 import os
 from flask import Flask
 import threading
-import unicodedata
 
 # ========================
 # 環境変数の読み込み
@@ -80,16 +79,7 @@ async def on_message(message):
     if message.author.id != TARGET_USER_ID:
         return  # ターゲット以外は無視
 
-    # メッセージ内容を小文字にして、スペースを削除
-    cleaned_message = message.content.lower().replace(" ", "")
-    
-    # 正規化（全角文字を半角にしたり、特殊文字を統一）
-    cleaned_message = unicodedata.normalize('NFKC', cleaned_message)
-
-    # ブラックリストキーワードを正規化
-    normalized_keywords = [unicodedata.normalize('NFKC', keyword.lower().replace(" ", "")) for keyword in keywords]
-
-    if any(keyword in cleaned_message for keyword in normalized_keywords):
+    if any(keyword in message.content for keyword in keywords):
         # ユーザーがボイスチャンネルにいるか確認
         if message.author.voice and message.author.voice.channel:
             await message.author.move_to(None)  # VCから切断
