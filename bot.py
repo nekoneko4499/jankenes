@@ -82,8 +82,13 @@ async def on_message(message):
     if any(keyword in message.content for keyword in keywords):
         # ユーザーがボイスチャンネルにいるか確認
         if message.author.voice and message.author.voice.channel:
-            await message.author.move_to(None)  # VCから切断
-            await message.channel.send(f"```違反行為が見つかったため、対象のユーザー（{message.author.mention}）をキックしました。```")
+            try:
+                await message.author.move_to(None)  # VCから切断
+                await message.channel.send(f"```違反行為が見つかったため、対象のユーザー（{message.author.mention}）をキックしました。```")
+            except discord.Forbidden:
+                log_channel = bot.get_channel(BLACKLIST_LOG_CHANNEL_ID)
+                if log_channel:
+                    await log_channel.send(f"⚠️ {message.author.display_name} ({message.author.id}) のVC切断に失敗しました。権限不足の可能性があります。")
 
     await bot.process_commands(message)
 
@@ -102,7 +107,9 @@ async def on_ready():
                     if log_channel:
                         await log_channel.send(f"⛔ 起動時にブラックリストID: `{member.id}` をキックしました。")
                 except discord.Forbidden:
-                    print(f"{member.name} をキックできませんでした。")
+                    log_channel = bot.get_channel(BLACKLIST_LOG_CHANNEL_ID)
+                    if log_channel:
+                        await log_channel.send(f"⚠️ {member.name} ({member.id}) をキックできませんでした。権限不足の可能性があります。")
 
 # ========================
 # ✅ 新メンバー参加時のチェック
@@ -116,7 +123,9 @@ async def on_member_join(member):
             if log_channel:
                 await log_channel.send(f"⛔ ブラックリストID: `{member.id}` のユーザーをキックしました。")
         except discord.Forbidden:
-            print(f"{member.name} をキックできませんでした。")
+            log_channel = bot.get_channel(BLACKLIST_LOG_CHANNEL_ID)
+            if log_channel:
+                await log_channel.send(f"⚠️ {member.name} ({member.id}) をキックできませんでした。権限不足の可能性があります。")
 
 # ========================
 # ✅ 見学ロール付与時にDM送信
