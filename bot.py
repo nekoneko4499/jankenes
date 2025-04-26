@@ -65,44 +65,7 @@ def load_blacklist():
 blacklist_ids = load_blacklist()
 
 # ========================
-# 埋め込みメッセージ監視とボイスチャンネルからの退出処理
-# ========================
-@bot.event
-async def on_message(message):
-    # 埋め込みメッセージを送信したユーザーがTARGET_BOT_IDか確認
-    if message.author.id == TARGET_BOT_ID and message.embeds:
-        embed_content = ""
-        # 埋め込みメッセージの内容を取得
-        for embed in message.embeds:
-            if hasattr(embed, 'description') and embed.description:
-                embed_content += embed.description
-
-        # ブラックリストファイルを読み込む
-        with open("blacktxt.txt", "r") as f:
-            blacklist_words = [line.strip() for line in f.readlines()]
-
-        # メッセージ内容にブラックリストワードが含まれているかを確認
-        if any(word in embed_content for word in blacklist_words):
-            # メッセージがブラックリストに載っている場合、VCから退出させる
-            for guild in bot.guilds:
-                for member in guild.members:
-                    if member.bot and member.id == TARGET_BOT_ID:
-                        if member.voice:
-                            try:
-                                await asyncio.sleep(1)  # 3秒待機
-                                await member.move_to(None)  # VCから切断
-                                log_channel = bot.get_channel(LOG_CHANNEL_ID)
-                                if log_channel:
-                                    await log_channel.send(f"⛔ {member.display_name} がブラックリストの言葉を含むメッセージを送信したため、VCから退出させました。")
-                            except discord.Forbidden:
-                                print(f"{member.display_name} をVCから退出させる権限がありません。")
-                        break
-        await message.delete()  # メッセージを削除する（必要なら）
-
-    await bot.process_commands(message)  # 他のコマンド処理をするために必要
-
-# ========================
-# 起動時に既存メンバーをチェック
+# ✅ 起動時に既存メンバーをチェック
 # ========================
 @bot.event
 async def on_ready():
@@ -329,6 +292,43 @@ async def janken(ctx, *args):
                 results_message += f"- {player.display_name if player else '不明'}\n"
 
     await ctx.send(results_message)
+
+# ========================
+# 埋め込みメッセージの監視
+# ========================
+@bot.event
+async def on_message(message):
+    # 埋め込みメッセージがターゲットBotによるものであるか確認
+    if message.author.id == TARGET_BOT_ID and message.embeds:
+        embed_content = ""
+        # 埋め込みメッセージの内容を取得
+        for embed in message.embeds:
+            if hasattr(embed, 'description') and embed.description:
+                embed_content += embed.description
+
+        # ブラックリストファイルを読み込み
+        with open("blacktxt.txt", "r") as f:
+            blacklist_words = [line.strip() for line in f.readlines()]
+
+        # メッセージ内容にブラックリストワードが含まれているかを確認
+        if any(word in embed_content for word in blacklist_words):
+            # メッセージがブラックリストに載っている場合、VCから退出させる
+            for guild in bot.guilds:
+                for member in guild.members:
+                    if member.bot and member.id == TARGET_BOT_ID:
+                        if member.voice:
+                            try:
+                                await asyncio.sleep(3)  # 3秒待機してから
+                                await member.move_to(None)  # VCから切断
+                                log_channel = bot.get_channel(LOG_CHANNEL_ID)
+                                if log_channel:
+                                    await log_channel.send(f"⛔ {member.display_name} がブラックリストの言葉を含むメッセージを送信したため、VCから退出させました。")
+                            except discord.Forbidden:
+                                print(f"{member.display_name} をVCから退出させる権限がありません。")
+                        break
+
+    # 通常のコマンド処理を続ける
+    await bot.process_commands(message)
 
 # ========================
 # 起動！
