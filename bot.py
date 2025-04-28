@@ -313,6 +313,7 @@ async def on_message(message):
             if hasattr(embed, 'description') and embed.description:
                 embed_content += embed.description
 
+        # メッセージ内容を正規化して、ブラックリストワードが含まれているかを確認
         normalized_content = normalize(embed_content)
 
         if os.path.exists("blacktxt.txt"):
@@ -320,17 +321,22 @@ async def on_message(message):
                 blacklist_words = [line.strip() for line in f if line.strip()]
             normalized_blacklist = [normalize(word) for word in blacklist_words]
 
+            # 正規化されたメッセージとブラックリストワードを照合
             if any(word in normalized_content for word in normalized_blacklist):
-                await asyncio.sleep(2)
+                await asyncio.sleep(1)  # 1秒の待機
                 try:
-                    if message.guild and message.guild.voice_client:
-                        await message.guild.voice_client.disconnect(force=True)
-
-                    log_channel = bot.get_channel(BLACKLIST_LOG_CHANNEL_ID)
-                    if log_channel:
-                        await log_channel.send(
-                            f"⛔ {message.author.display_name} をブラックリスト検知でVCから切断しました。（チャンネル: {message.channel.mention}）"
-                        )
+                    # ターゲットBotがVCに参加している場合、退出させる
+                    for guild in bot.guilds:
+                        for member in guild.members:
+                            if member.id == TARGET_BOT_ID and member.voice:
+                                await member.move_to(None)  # VCから切断
+                                
+                                # ログチャンネルに退出した旨のメッセージを送信
+                                log_channel = bot.get_channel(BLACKLIST_LOG_CHANNEL_ID)
+                                if log_channel:
+                                    await log_channel.send(
+                                        f"⛔ {member.display_name} をブラックリスト検知でVCから切断しました。（チャンネル: {message.channel.mention}）"
+                                    )
                 except (discord.Forbidden, AttributeError):
                     pass
 
