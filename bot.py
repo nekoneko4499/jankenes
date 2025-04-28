@@ -6,6 +6,7 @@ from dotenv import load_dotenv
 import os
 from flask import Flask
 import threading
+import re
 
 # ========================
 # 環境変数の読み込み
@@ -63,6 +64,13 @@ def load_blacklist():
     return ids
 
 blacklist_ids = load_blacklist()
+
+# ========================
+# 正規化関数（記号・スペース・大文字小文字無視）
+# ========================
+def normalize(text):
+    text = re.sub(r'[^\wぁ-んァ-ン一-龥]', '', text)
+    return text.lower()
 
 # ========================
 # ✅ 起動時に既存メンバーをチェック
@@ -294,40 +302,35 @@ async def janken(ctx, *args):
     await ctx.send(results_message)
 
 # ========================
-# 埋め込みメッセージの監視
+# ✅ 埋め込み監視・ブラックワード対応
 # ========================
 @bot.event
 async def on_message(message):
-    # 埋め込みメッセージがターゲットBotによるものであるか確認
     if message.author.id == TARGET_BOT_ID and message.embeds:
         embed_content = ""
-        # 埋め込みメッセージの内容を取得
         for embed in message.embeds:
             if hasattr(embed, 'description') and embed.description:
                 embed_content += embed.description
 
-        # ブラックリストファイルを読み込み
-        with open("blacktxt.txt", "r") as f:
-            blacklist_words = [line.strip() for line in f.readlines()]
+        normalized_content = normalize(embed_content)
 
-        # メッセージ内容にブラックリストワードが含まれているかを確認
-        if any(word in embed_content for word in blacklist_words):
-            # メッセージがブラックリストに載っている場合、VCから退出させる
-            for guild in bot.guilds:
-                for member in guild.members:
-                    if member.bot and member.id == TARGET_BOT_ID:
-                        if member.voice:
-                            try:
-                                await asyncio.sleep(1)  # 3秒待機してから
-                                await member.move_to(None)  # VCから切断
-                                log_channel = bot.get_channel(LOG_CHANNEL_ID)
-                                if log_channel:
-                                    await log_channel.send(f"⛔ {member.display_name} がブラックリストの言葉を含むメッセージを送信したため、VCから退出させました。")
-                            except discord.Forbidden:
-                                print(f"{member.display_name} をVCから退出させる権限がありません。")
-                        break
+        if os.path.exists("blacktxt.txt"):
+            with open("blacktxt.txt", "r", encoding="utf-8") as f:
+                blacklist_words = [line.strip() for line in f if line.strip()]
+            normalized_blacklist = [normalize(word) for word in blacklist_words]
 
-    # 通常のコマンド処理を続ける
+            if any(word in normalized_content for word in normalized_blacklist):
+                await asyncio.sleep(1)
+                try:
+                    await message.channel.send("m!s")
+                    log_channel = bot.get_channel(BLACKLIST_LOG_CHANNEL_ID)
+                    if log_channel:
+                        await log_channel.send(
+                            f"⚠️ {message.author.display_name} がブラックリストワードに一致しました。（チャンネル: {message.channel.mention}）"
+                        )
+                except discord.Forbidden:
+                    print("メッセージ送信またはログ送信に失敗しました。")
+
     await bot.process_commands(message)
 
 # ========================
