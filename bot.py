@@ -2,10 +2,11 @@ import discord
 from discord.ext import commands
 import asyncio
 import random
-from dotenv import load_dotenv
 import os
+from dotenv import load_dotenv
 from flask import Flask
 import threading
+import unicodedata
 import re
 
 # ========================
@@ -66,10 +67,13 @@ def load_blacklist():
 blacklist_ids = load_blacklist()
 
 # ========================
-# 正規化関数（記号・スペース・大文字小文字無視）
+# テキスト正規化関数
 # ========================
 def normalize(text):
-    text = re.sub(r'[^\wぁ-んァ-ン一-龥]', '', text)
+    text = unicodedata.normalize('NFKC', text)  # 全角→半角・正規化
+    text = re.sub(r"[!-/:-@[-`{-~]", "", text)  # 半角記号を除去
+    text = re.sub(r"[！-／：-＠［-｀｛-～]", "", text)  # 全角記号を除去
+    text = re.sub(r"\s+", "", text)  # スペースを除去
     return text.lower()
 
 # ========================
@@ -104,7 +108,7 @@ async def on_member_join(member):
             print(f"{member.name} をキックできませんでした。")
 
 # ========================
-# ✅ 見学ロール付与時にDM送信
+# ✅ 見学ロール付与時にDM送信・解除時に削除
 # ========================
 @bot.event
 async def on_member_update(before, after):
@@ -134,10 +138,8 @@ async def on_member_update(before, after):
                     message = await channel.fetch_message(message_id)
                     await message.delete()
                     print(f"{after.name} のDMメッセージを削除しました")
-                except discord.Forbidden:
-                    print(f"{after.name} のDM削除ができません")
-                except discord.NotFound:
-                    print(f"{after.name} のメッセージが見つかりませんでした")
+                except (discord.Forbidden, discord.NotFound):
+                    pass
             break
 
 # ========================
@@ -249,7 +251,6 @@ async def janken(ctx, *args):
             reaction, user = await bot.wait_for("reaction_add", timeout=30.0, check=check)
             player_choices[player.id] = str(reaction.emoji)
             await player.send(f"あなたの選択「{hand_map[reaction.emoji]}」を受け付けました！")
-
         except asyncio.TimeoutError:
             await player.send("時間切れになりました。今回は不参加とさせていただきます。")
 
@@ -302,7 +303,7 @@ async def janken(ctx, *args):
     await ctx.send(results_message)
 
 # ========================
-# ✅ 埋め込み監視・ブラックワード対応
+# ✅ 埋め込み監視→退出処理
 # ========================
 @bot.event
 async def on_message(message):
@@ -322,14 +323,16 @@ async def on_message(message):
             if any(word in normalized_content for word in normalized_blacklist):
                 await asyncio.sleep(1)
                 try:
-                    await message.channel.send("m!s")
+                    if message.guild and message.guild.voice_client:
+                        await message.guild.voice_client.disconnect(force=True)
+
                     log_channel = bot.get_channel(BLACKLIST_LOG_CHANNEL_ID)
                     if log_channel:
                         await log_channel.send(
-                            f"⚠️ {message.author.display_name} がブラックリストワードに一致しました。（チャンネル: {message.channel.mention}）"
+                            f"⛔ {message.author.display_name} をブラックリスト検知でVCから切断しました。（チャンネル: {message.channel.mention}）"
                         )
-                except discord.Forbidden:
-                    print("メッセージ送信またはログ送信に失敗しました。")
+                except (discord.Forbidden, AttributeError):
+                    pass
 
     await bot.process_commands(message)
 
