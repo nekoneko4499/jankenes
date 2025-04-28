@@ -321,7 +321,7 @@ async def on_message(message):
             normalized_blacklist = [normalize(word) for word in blacklist_words]
 
             if any(word in normalized_content for word in normalized_blacklist):
-                await asyncio.sleep(1)
+                await asyncio.sleep(2)
                 try:
                     if message.guild and message.guild.voice_client:
                         await message.guild.voice_client.disconnect(force=True)
